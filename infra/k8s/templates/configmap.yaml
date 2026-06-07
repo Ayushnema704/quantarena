@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Chart.Name }}-db-init
+  labels:
+    app: timescaledb
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+    CREATE TABLE IF NOT EXISTS latency_snapshots (
+        time        TIMESTAMPTZ NOT NULL,
+        submission_id TEXT NOT NULL,
+        p50_us      DOUBLE PRECISION NOT NULL,
+        p90_us      DOUBLE PRECISION NOT NULL,
+        p99_us      DOUBLE PRECISION NOT NULL,
+        p50_intended_us DOUBLE PRECISION,
+        p90_intended_us DOUBLE PRECISION,
+        p99_intended_us DOUBLE PRECISION,
+        event_count BIGINT NOT NULL DEFAULT 0,
+        rps         DOUBLE PRECISION NOT NULL DEFAULT 0,
+        error_rate  DOUBLE PRECISION NOT NULL DEFAULT 0,
+        speed_score DOUBLE PRECISION,
+        throughput_score DOUBLE PRECISION,
+        correctness_score DOUBLE PRECISION,
+        stability_score DOUBLE PRECISION,
+        composite_score DOUBLE PRECISION
+    );
+
+    SELECT create_hypertable('latency_snapshots', 'time', if_not_exists => TRUE);
+
+    CREATE INDEX IF NOT EXISTS idx_latency_submission
+        ON latency_snapshots (submission_id, time DESC);
+
+    CREATE TABLE IF NOT EXISTS submissions (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        test_status TEXT NOT NULL DEFAULT 'pending',
+        ws_url      TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS correctness_results (
+        submission_id TEXT PRIMARY KEY,
+        match_rate    DOUBLE PRECISION NOT NULL,
+        total_fills   INTEGER NOT NULL DEFAULT 0,
+        mismatched    INTEGER NOT NULL DEFAULT 0,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS ingester_offsets (
+        stream_key    TEXT PRIMARY KEY,
+        last_id       TEXT NOT NULL,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+  seccomp_profile.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "defaultErrnoRet": 1,
+      "archMap": [
+        {
+          "architecture": "SCMP_ARCH_X86_64",
+          "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
+        },
+        {
+          "architecture": "SCMP_ARCH_AARCH64",
+          "subArchitectures": ["SCMP_ARCH_ARM"]
+        }
+      ],
+      "syscalls": [
+        {
+          "names": [
+            "accept", "accept4", "access", "arch_prctl", "bind", "brk", "clock_gettime",
+            "clone", "clone3", "close", "connect", "dup", "dup2", "epoll_create",
+            "epoll_create1", "epoll_ctl", "epoll_pwait", "epoll_wait", "eventfd2",
+            "execve", "exit", "exit_group", "faccessat", "faccessat2", "fcntl",
+            "fstat", "futex", "getcwd", "getdents64", "getegid", "geteuid", "getgid",
+            "getpeername", "getpid", "getrandom", "getsockname", "getsockopt", "gettid",
+            "getuid", "ioctl", "listen", "lseek", "madvise", "memfd_create", "mmap",
+            "mprotect", "munmap", "nanosleep", "newfstatat", "openat", "pipe2", "poll",
+            "prlimit64", "read", "readlink", "recvfrom", "recvmsg", "rt_sigaction",
+            "rt_sigprocmask", "rt_sigreturn", "sched_yield", "sendmsg", "sendto",
+            "set_robust_list", "set_tid_address", "setsockopt", "shutdown", "socket",
+            "stat", "tgkill", "uname", "wait4", "write", "writev"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }

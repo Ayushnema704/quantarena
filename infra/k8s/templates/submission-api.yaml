@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-submission-api
+  labels:
+    app: submission-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: submission-api
+  template:
+    metadata:
+      labels:
+        app: submission-api
+    spec:
+      containers:
+        - name: submission-api
+          image: {{ .Values.image.submissionApi }}
+          env:
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+            - name: BUILD_DIR
+              value: "/tmp/iicpc-builds"
+            - name: SANDBOX_ISOLATED_NETWORK
+              value: "1"
+            - name: SECCOMP_PATH
+              value: "/app/infra/seccomp_profile.json"
+            - name: DOCKER_RUNTIME
+              value: {{ .Values.sandbox.runtime | quote }}
+            - name: WS_PROXY_URL
+              value: "http://ws-proxy:8787"
+            - name: WS_PUBLIC_HOST
+              value: "localhost"
+            - name: WS_PUBLIC_PORT
+              value: "8787"
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: builds-dir
+              mountPath: /tmp/iicpc-builds
+            - name: seccomp-profile
+              mountPath: /app/infra/seccomp_profile.json
+              subPath: seccomp_profile.json
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: builds-dir
+          emptyDir: {}
+        - name: seccomp-profile
+          configMap:
+            name: {{ .Chart.Name }}-db-init
+            items:
+              - key: seccomp_profile.json
+                path: seccomp_profile.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: submission-api
+  labels:
+    app: submission-api
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+  selector:
+    app: submission-api

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-timescaledb
+  labels:
+    app: timescaledb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timescaledb
+  template:
+    metadata:
+      labels:
+        app: timescaledb
+    spec:
+      containers:
+        - name: timescaledb
+          image: timescale/timescaledb:latest-pg16
+          env:
+            - name: POSTGRES_USER
+              value: "iicpc"
+            - name: POSTGRES_PASSWORD
+              value: "iicpc_dev"
+            - name: POSTGRES_DB
+              value: "iicpc"
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d/
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+      volumes:
+        - name: init-script
+          configMap:
+            name: {{ .Chart.Name }}-db-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  labels:
+    app: timescaledb
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: timescaledb

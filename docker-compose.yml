@@ -1,0 +1,151 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: iicpc
+      POSTGRES_PASSWORD: iicpc_dev
+      POSTGRES_DB: iicpc
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./infra/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iicpc -d iicpc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ws_proxy:
+    build:
+      context: .
+      dockerfile: services/ws_proxy/Dockerfile
+    ports:
+      - "8787:8787"
+    networks:
+      - default
+      - contestant_net
+
+  submission_api:
+    build:
+      context: .
+      dockerfile: services/submission_api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - submission_builds:/tmp/iicpc-builds
+      - ./infra/seccomp_profile.json:/app/infra/seccomp_profile.json:ro
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BUILD_DIR: /tmp/iicpc-builds
+      SANDBOX_ISOLATED_NETWORK: "1"
+      SECCOMP_PATH: /app/infra/seccomp_profile.json
+      DOCKER_RUNTIME: ${DOCKER_RUNTIME:-runc}
+      WS_PROXY_URL: http://ws_proxy:8787
+      WS_PUBLIC_HOST: localhost
+      WS_PUBLIC_PORT: "8787"
+    depends_on:
+      redis:
+        condition: service_healthy
+      ws_proxy:
+        condition: service_started
+    networks:
+      - default
+      - contestant_net
+
+  ingester:
+    build:
+      context: .
+      dockerfile: services/ingester/Dockerfile
+    ports:
+      - "9100:9100"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://iicpc:iicpc_dev@timescaledb:5432/iicpc
+      DROP_POLICY: drop_oldest
+      METRICS_PORT: "9100"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  validator:
+    build:
+      context: .
+      dockerfile: services/validator/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - ingester
+
+  frontend:
+    build:
+      context: services/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://iicpc:iicpc_dev@timescaledb:5432/iicpc
+      SUBMISSION_API_URL: http://submission_api:8000
+    depends_on:
+      - redis
+      - timescaledb
+      - ingester
+
+volumes:
+  redis_data:
+  timescale_data:
+  submission_builds:
+
+networks:
+  contestant_net:
+    external: true
+    name: contestant_net

@@ -1,0 +1,22 @@
+replicaCount: 1
+
+image:
+  submissionApi: iicpc/submission-api:latest
+  ingester: iicpc/ingester:latest
+  frontend: iicpc/frontend:latest
+  validator: iicpc/validator:latest
+  wsProxy: iicpc/ws-proxy:latest
+
+redis:
+  url: redis://redis:6379/0
+
+timescaledb:
+  url: postgresql://iicpc:iicpc_dev@timescaledb:5432/iicpc
+
+sandbox:
+  runtime: runsc
+  isolatedNetwork: true
+
+ingress:
+  enabled: false
+  host: iicpc.local

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: iicpc-platform
+description: Helm chart stub for production path
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

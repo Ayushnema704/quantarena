@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-ws-proxy
+  labels:
+    app: ws-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ws-proxy
+  template:
+    metadata:
+      labels:
+        app: ws-proxy
+    spec:
+      containers:
+        - name: ws-proxy
+          image: {{ .Values.image.wsProxy }}
+          env:
+            - name: WS_PROXY_PORT
+              value: "8787"
+          ports:
+            - containerPort: 8787
+              name: ws
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-proxy
+  labels:
+    app: ws-proxy
+spec:
+  ports:
+    - port: 8787
+      targetPort: 8787
+  selector:
+    app: ws-proxy
